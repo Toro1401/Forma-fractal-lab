@@ -1,0 +1,30 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {generate, validateProject, MAX_SEGMENTS} = require('../dist/engine.js');
+const koch = [{u:1/3,v:0},{u:.5,v:Math.sqrt(3)/6},{u:2/3,v:0}];
+const close = (a,b) => assert.ok(Math.abs(a-b)<1e-10,`${a} != ${b}`);
+const base = generate(koch,0,false);
+assert.deepEqual([...base.points],[0,0,1,0]);
+const first = generate(koch,1,false);
+assert.equal(first.count,4);
+close(first.points[4],.5);close(first.points[5],Math.sqrt(3)/6);
+const detailed = generate(koch,5,false);
+assert.equal(detailed.count,1024);assert.equal(detailed.points[0],0);assert.equal(detailed.points.at(-2),1);assert.equal(detailed.points.at(-1),0);
+for(const length of [1,2,3,7,8]) {
+  const folds=Array.from({length},(_,i)=>({u:(i+1)/(length+1),v:i%2?-.4:.4}));
+  const result=generate(folds,10,true);
+  assert.ok(result.count<=MAX_SEGMENTS);assert.equal(result.count,(length+1)**result.iterations);assert.ok(result.points.every(Number.isFinite));
+  assert.ok(result.bounds.maxX>=result.bounds.minX);assert.ok(result.bounds.maxY>=result.bounds.minY);
+}
+const reflected=generate([{u:.5,v:.5}],3,true),regular=generate([{u:.5,v:.5}],3,false);
+assert.notDeepEqual([...reflected.points],[...regular.points]);
+assert.equal(reflected.count,regular.count);
+assert.throws(()=>generate([{u:NaN,v:0}],4,false));
+assert.throws(()=>generate([{u:.5,v:0}],Infinity,false));
+assert.throws(()=>generate([{u:.5,v:0}],4,false,Infinity));
+const project={version:1,name:'Test',folds:koch,iterations:5,palette:'aurora',mirror:true,lineWidth:1.3};
+assert.deepEqual(validateProject(JSON.parse(JSON.stringify(project))),project);
+for(const bad of [null,{}, {...project,version:2},{...project,folds:[]},{...project,folds:[{u:.5,v:Infinity}]},{...project,iterations:-1}]) assert.throws(()=>validateProject(bad));
+const sanitized=validateProject({...project,name:'x'.repeat(100),palette:'missing',lineWidth:999});
+assert.equal(sanitized.name.length,60);assert.equal(sanitized.palette,'lime');assert.equal(sanitized.lineWidth,3);
+console.log('Geometry and project validation: all checks passed.');

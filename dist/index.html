@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111515">
+  <meta name="description" content="Un piccolo laboratorio per grandi geometrie. Piega, esplora e crea i tuoi frattali.">
+  <title>Forma — Laboratorio di frattali</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23111515'/%3E%3Cpath d='M12 46 24 18 33 39 43 14 54 46' fill='none' stroke='%23c9ef80' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="engine.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./" aria-label="Forma, inizio"><svg viewBox="0 0 36 30" aria-hidden="true"><path d="M2 26 11 5 18 21 25 2 34 26"/></svg><span>forma<span class="brand-dot">.</span></span></a>
+    <span class="brand-caption">UN LABORATORIO DI FRATTALI</span>
+    <div class="header-actions"><button id="helpBtn" class="quiet">Come si gioca <span class="keycap">?</span></button><button id="galleryBtn" class="quiet">Raccolta <span id="galleryCount" class="count">0</span></button><button id="saveBtn" class="accent small">Salva creazione <span aria-hidden="true">↗</span></button></div>
+  </header>
+  <main>
+    <aside class="controls" aria-label="Controlli del laboratorio">
+      <div class="intro"><span class="eyebrow">PICCOLE REGOLE, GRANDI FORME</span><h1>La geometria<br>prende una piega.</h1><p>Sposta un punto. Ripeti la regola.<br>Lasciati sorprendere.</p></div>
+      <section class="control-section presets-section">
+        <div class="section-heading"><h2><span>01</span> Parti da una forma</h2><button id="randomBtn" class="text-button" title="Genera una forma casuale">Sorprendimi ↗</button></div>
+        <div id="presets" class="preset-grid" role="group" aria-label="Forme iniziali"></div>
+      </section>
+      <section class="control-section">
+        <div class="section-heading"><h2><span>02</span> Disegna la regola</h2><div class="history"><button id="undoBtn" class="icon-button" title="Annulla (Ctrl+Z)" aria-label="Annulla">↶</button><button id="redoBtn" class="icon-button" title="Ripeti (Ctrl+Shift+Z)" aria-label="Ripeti">↷</button></div></div>
+        <div class="editor-wrap"><canvas id="generator" tabindex="0" aria-label="Editor della regola: trascina i punti o usa i controlli numerici sotto"></canvas><span class="editor-label">A</span><span class="editor-label end">B</span></div>
+        <div class="editor-footer"><span id="foldCount">3 punti di piega</span><div><button id="addFold" class="text-button">+ Punto</button><button id="removeFold" class="text-button" title="Rimuovi il punto selezionato">− Punto</button></div></div>
+        <div class="point-controls"><label>Punto <select id="pointSelect" aria-label="Punto da modificare"></select></label><label>X <input id="pointX" type="number" min="0.01" max="0.99" step="0.01" aria-label="Posizione orizzontale del punto"></label><label>Y <input id="pointY" type="number" min="-1.5" max="1.5" step="0.01" aria-label="Altezza del punto"></label></div>
+        <p class="micro-hint">Trascina i punti · Tocca lo spazio per aggiungerne uno</p>
+      </section>
+      <section class="control-section settings-section">
+        <div class="section-heading"><h2><span>03</span> Esplora il dettaglio</h2><output id="iterationValue" for="iterations" class="value-chip">5</output></div>
+        <input id="iterations" aria-label="Numero di iterazioni" type="range" min="0" max="10" value="5">
+        <div class="range-labels"><span>Segmento</span><span>Complessità</span></div>
+        <label class="toggle-row"><span>Specchia segmenti alterni</span><input id="mirror" type="checkbox" role="switch"><span class="switch" aria-hidden="true"></span></label>
+        <div class="palette-row"><span>Colore</span><div id="palettes" role="group" aria-label="Palette del frattale"></div></div>
+        <label class="width-row" for="lineWidth"><span>Tratto</span><input id="lineWidth" type="range" min="0.5" max="3" step="0.1" value="1.3"></label>
+      </section>
+      <div class="sidebar-bottom"><span class="live-dot"></span> Fatto per esplorare, senza fretta.</div>
+    </aside>
+    <section class="workspace" aria-label="Frattale interattivo">
+      <canvas id="fractal" tabindex="0" aria-label="Frattale. Trascina per spostare, usa la rotella o i pulsanti per ingrandire."></canvas>
+      <div class="canvas-heading"><span class="eyebrow">IL TUO ESPERIMENTO</span><h2 id="creationName">Curva di Koch</h2><span id="creationSubtitle">La meraviglia nasce dalla ripetizione.</span></div>
+      <div class="canvas-top-actions"><button id="gridBtn" class="glass icon-button" title="Mostra o nascondi griglia" aria-label="Mostra o nascondi griglia" aria-pressed="true">▦</button><button id="fullscreenBtn" class="glass icon-button" title="Schermo intero" aria-label="Schermo intero">⛶</button></div>
+      <div class="axis-label horizontal">X</div><div class="axis-label vertical">Y</div>
+      <div class="canvas-bottom"><div class="stat-block"><span id="segmentCount" class="stat-number">1.024</span><span class="stat-caption">SEGMENTI</span></div><div class="stat-divider"></div><div class="stat-block"><span id="multiplier" class="stat-number">×4</span><span class="stat-caption">A OGNI PASSAGGIO</span></div><span id="renderStatus" class="render-status" role="status">Pronto a esplorare</span></div>
+      <div class="zoom-controls glass"><button id="zoomOut" class="icon-button" aria-label="Riduci zoom">−</button><span id="zoomValue">100%</span><button id="zoomIn" class="icon-button" aria-label="Aumenta zoom">+</button><span class="toolbar-divider"></span><button id="fitBtn" class="icon-button" title="Adatta alla vista (F)" aria-label="Adatta alla vista">⌖</button></div>
+      <div class="playbar glass"><button id="playBtn" class="play-button" aria-label="Anima le iterazioni" aria-pressed="false"><span id="playIcon">▶</span></button><div class="play-text"><strong id="playLabel">Guarda come nasce</strong><span>Una regola, un passo alla volta</span></div><div class="playbar-separator"></div><button id="exportBtn" class="export-button">Esporta <span aria-hidden="true">↓</span></button></div>
+      <div id="complexityNotice" class="notice" role="status" hidden></div>
+      <div class="canvas-hint">TRASCINA PER ESPLORARE <span>·</span> SCORRI PER AVVICINARTI</div>
+    </section>
+  </main>
+  <div id="toast" role="status" class="toast" hidden></div>
+  <dialog id="helpDialog"><div class="dialog-heading"><span class="eyebrow">BENVENUTO NEL LABORATORIO</span><button class="close-dialog icon-button" aria-label="Chiudi">×</button></div><h2>Una regola. Infinite possibilità.</h2><p>Ogni segmento viene sostituito con la forma che disegni nell’editor. Ripetendo questa piccola regola, nasce il tuo frattale.</p><ol class="help-steps"><li><b>Scegli una forma</b><span>Parti da Koch, Lévy o da un esperimento casuale.</span></li><li><b>Fai una piega</b><span>Trascina i punti nell’editor. Aggiungine uno con un tocco; selezionalo e premi − Punto per eliminarlo.</span></li><li><b>Ripeti e scopri</b><span>Aumenta le iterazioni o premi Play per vedere la costruzione. Con molti punti il laboratorio limita il dettaglio per restare reattivo.</span></li></ol><p>Le creazioni vengono salvate in questo browser. Esporta il progetto JSON per conservarle altrove e reimportarle.</p><div class="shortcuts"><span><kbd>F</kbd> Adatta</span><span><kbd>Spazio</kbd> Anima</span><span><kbd>Ctrl Z</kbd> Annulla</span></div><button class="accent close-dialog">Inizia a giocare ↗</button></dialog>
+  <dialog id="saveDialog"><div class="dialog-heading"><span class="eyebrow">IL TUO PICCOLO UNIVERSO</span><button class="close-dialog icon-button" aria-label="Chiudi">×</button></div><h2>Dai un nome alla tua forma.</h2><form id="saveForm"><label class="field-label" for="saveName">Nome della creazione</label><input id="saveName" class="text-input" maxlength="60" required autocomplete="off"><p>La ritroverai nella raccolta di questo browser.</p><button class="accent" type="submit">Salva nella raccolta ↗</button></form></dialog>
+  <dialog id="galleryDialog" class="gallery-dialog"><div class="dialog-heading"><span class="eyebrow">ESPERIMENTI DA TENERE</span><button class="close-dialog icon-button" aria-label="Chiudi">×</button></div><h2>La tua raccolta<span class="brand-dot">.</span></h2><div id="galleryList" class="gallery-list"></div><label class="import-button quiet" tabindex="0">↑ Importa un progetto JSON<input id="importFile" type="file" accept="application/json,.json" hidden></label></dialog>
+  <dialog id="exportDialog"><div class="dialog-heading"><span class="eyebrow">PORTA LA GEOMETRIA CON TE</span><button class="close-dialog icon-button" aria-label="Chiudi">×</button></div><h2>Una forma da conservare.</h2><p>PNG e SVG esportano l’intera forma su fondo scuro, senza griglia né controlli.</p><div class="export-options"><button id="exportPng"><b>Immagine PNG ↗</b><span>2400 × 1800 px · pronta da condividere</span></button><button id="exportSvg"><b>Vettoriale SVG ↗</b><span>Linee nitide a qualsiasi dimensione</span></button><button id="exportJson"><b>Progetto JSON ↗</b><span>Per riaprire e continuare a giocare</span></button></div></dialog>
+</body>
+</html>

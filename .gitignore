@@ -1,0 +1,8 @@
+.qa*/
+desktop.png
+mobile.png
+*.tar.gz
+*.tar
+node_modules/
+.env*
+!.env.example
