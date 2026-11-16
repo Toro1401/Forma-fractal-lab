@@ -1,89 +1,89 @@
-# Forma — Laboratorio di frattali
+﻿# Forma — Fractal Playground
 
-Un laboratorio visivo in italiano per disegnare una regola, ripeterla e scoprire come cresce. Funziona nel browser, senza account, dipendenze npm o servizi esterni. Include 40 esempi modificabili, cinque generatori e una raccolta unica con backup e cestino.
+An interactive playground for drawing a rule, repeating it, and watching it grow. Runs in your browser without accounts, npm dependencies, or external services. Includes 40 editable presets, five generators, and a unified library with backups and trash recovery. The application interface is currently in Italian; this guide provides English descriptions of its controls.
 
-## Avvio
+## Getting started
 
-Su Windows fai doppio clic su **avvia-locale.cmd**, poi apri **http://127.0.0.1:8080**. Sono richiesti Python 3.8 o successivo e un browser recente. Riavvia un server già aperto dopo l’aggiornamento di `serve.py`.
+On Windows, double-click **avvia-locale.cmd**, then open **http://127.0.0.1:8080**. Requires Python 3.8 or later and a recent browser. Restart an existing server after updating `serve.py`.
 
-Da terminale: `python serve.py --port 8080`. Se la porta è occupata, scegli per esempio `8081` e usa lo stesso numero nell’indirizzo. Il server ascolta soltanto su `127.0.0.1`; Ctrl+C lo arresta.
+From a terminal, run `python serve.py --port 8080`. If the port is busy, choose another, such as `8081`, and use that port in the URL. The server listens only on `127.0.0.1`; press Ctrl+C to stop it.
 
-Puoi anche aprire direttamente **dist/index.html**, oppure servire `dist/` con un server statico: esplorazione, salvataggi nel browser, backup e importazioni funzionano anche senza l’API Python. I file del progetto sono leggibili in ogni modalità; per aggiornarli serve il server locale. Un’origine o un profilo del browser diverso ha una raccolta locale distinta.
+You can also open **dist/index.html** directly or serve `dist/` with a static server. Exploration, browser saves, backups, and imports work without the Python API. Project presets can be read in any mode; updating their files requires the local server. Each browser origin and profile has its own local library.
 
-## Il laboratorio
+## The playground
 
-L’editor della regola è subito disponibile. **Scegli un esempio** apre una libreria filtrabile per famiglie, con miniature del risultato e suggerimenti. I 24 esempi precedenti sono conservati; i nuovi includono fiocchi chiusi, raggiere, mandala, alberi guidati, copie autosimili e grammatiche.
+The rule editor is immediately available. **Scegli un esempio** (Choose an example) opens a library with family filters, result previews, and suggestions. The original 24 examples are retained; additions include closed snowflakes, radial patterns, mandalas, guided trees, self-similar copies, and grammars.
 
-La linea del tempo è separata dal disegno: numero di generazioni, passo avanti/indietro, riproduzione, pausa effettiva sul livello corrente, ripresa, velocità e ripetizione. Su mobile il pulsante **Regola e stile** permette di dedicare lo schermo al risultato.
+A separate timeline controls generation depth, stepping, playback, speed, and looping. Pausing keeps the current generation, and playback can resume. On mobile, **Regola e stile** (Rule and style) toggles the settings panel to give the result more room.
 
-**Vista e confronto dei livelli** offre il riferimento precedente, l’anteprima del successivo, colori e spessore del riferimento, camera adattiva o fissa. La camera fissa conserva posizione e scala durante la crescita; Adatta reinquadra manualmente. Colore e tratto sono in una sezione distinta.
+**Vista e confronto dei livelli** (View and generation comparison) provides previous- and next-generation previews, reference colors and stroke width, and adaptive or fixed framing. Fixed framing preserves camera position and scale during growth; Fit reframes manually. Color and stroke settings have their own section.
 
-## Cinque metodologie
+## Five generators
 
-1. **Linea sostitutiva**: ogni segmento viene sostituito dalla polilinea A → P1 → … → B. A resta in (0, 0), B è modificabile. La figura iniziale può essere un segmento, un poligono chiuso oppure una raggiera. Puoi scegliere lati/bracci, orientamento, settori specchiati e sviluppo interno. La regola A → B resta aperta anche quando il risultato è un contorno chiuso. Il Fiocco di Koch usa una base triangolare, distinta dalla rosetta radiale.
-2. **Rami ricorsivi**: ogni segmento conserva il proprio tratto e genera rami con angolo, scala, innesto e specchiatura. Le coppie collegate si modificano insieme. Apertura della chioma, dominanza, variazioni per livello, settori alternati e irregolarità con seme salvato permettono crescite guidate e riproducibili.
-3. **Piega e raddoppia**: una copia dell’intero percorso si aggancia al terminale e viene percorsa al contrario. Rotazione, riflessione con asse visibile e trascinabile, oppure una sequenza ripetuta di operazioni. La riflessione a orientamento costante genera soprattutto fregi; il laboratorio segnala le sovrapposizioni complete riconosciute. Sono conservati i preset precedenti, incluso Drago a L.
-4. **Copie autosimili · IFS**: disegna una forma aperta o chiusa, eventualmente piena, e disponi da una a otto copie. Trascina gli innesti nella vista delle copie o modifica posizione, scale X/Y, rotazione, inclinazione e specchio. Ogni trasformazione deve essere contrattiva. Gli esempi comprendono triangolo e tappeto di Sierpiński, spirali e felce affine.
-5. **Grammatiche · L-system**: modifica assioma, regole, angolo, scala del passo e direzione. `F` e `G` disegnano, `f` avanza senza tracciare; `+` e `-` ruotano; `[` salva lo stato e `]` lo ripristina. Le altre lettere vengono riscritte. Esempi: albero, pianta e curva di Hilbert.
+1. **Replacement curve**: each segment is replaced by the polyline A → P1 → … → B. A stays at (0, 0), while B is editable. The initial figure can be a segment, a closed polygon, or a radial arrangement. Choose sides or arms, orientation, mirrored sectors, and inward growth. The A → B rule stays open even when the result is closed. The Koch snowflake uses a triangular base, distinct from a radial rosette.
+2. **Recursive branches**: each segment remains visible and produces branches with adjustable angle, scale, attachment, and reflection. Linked mirrored pairs update together. Canopy spread, dominance, per-generation changes, alternating sectors, and seeded irregularity support guided, reproducible growth.
+3. **Fold and double**: a reversed copy of the entire path attaches to its current endpoint. Choose rotation, reflection with a visible draggable axis, or a repeating sequence of operations. Reflections with a constant axis orientation mostly produce frieze patterns; detected complete overlaps are reported. Existing presets, including the L-shaped dragon, remain available.
+4. **Self-similar copies · IFS**: draw an open or closed shape, optionally filled, and arrange one to eight copies. Drag their anchors in the copy editor or adjust position, X/Y scales, rotation, shear, and reflection. Each transformation must be contractive. Examples include the Sierpiński triangle and carpet, spirals, and an affine fern.
+5. **Grammars · L-systems**: edit the axiom, production rules, turning angle, step scale, and initial heading. `F` and `G` draw, `f` moves without drawing, `+` and `-` turn, `[` saves the turtle state, and `]` restores it. Other letters are rewritten. Examples include a tree, a plant, and the Hilbert curve.
 
-Nei progetti versione 5 tutti gli angoli positivi sono antiorari. Le vecchie rotazioni globali vengono convertite cambiando il segno; i vecchi assi di riflessione conservano il proprio orientamento. La geometria dei progetti 1–4 rimane compatibile.
+In version 5 projects, positive angles are counterclockwise. Legacy global rotations are converted by reversing their sign; legacy reflection axes retain their orientation. Projects from versions 1–4 preserve their geometry.
 
-## Precisione e costruzione
+## Precision and construction
 
-Lunghezze bloccate, gruppi di congruenza e angoli sono disponibili nella costruzione avanzata. Bloccare una misura usa il valore geometrico esatto, anche quando il campo mostra due decimali. Le cifre digitate non vengono arrotondate prima del calcolo. I valori molto piccoli sono mostrati in notazione scientifica quando l’arrotondamento li renderebbe zero.
+Advanced construction supports locked lengths, equal-length groups, and angles. Locking a measurement uses its exact geometric value, even when the field displays two decimal places. Typed values are not rounded before calculation. Very small values use scientific notation when rounding would display zero.
 
-L’ordine dei punti segue il percorso, anche con X negativa o incroci. Inserire/rimuovere punti libera i vincoli dimensionali, mantenendo i versi sui lati corrispondenti. Annulla/ripeti conserva anche l’identità della creazione da aggiornare. Griglia magnetica, specchiatura e raddrizzamento della regola sono disponibili vicino all’editor.
+Point order follows the path, including negative X coordinates and crossings. Adding or removing points clears dimensional constraints while preserving directions on corresponding sides. Undo and redo also restore the identity of the creation being updated. Grid snapping, mirroring, and straightening are available near the editor.
 
-## Variazioni
+## Variations
 
-**Confronta quattro varianti** genera modifiche vicine alla creazione corrente. Intensità e protezione di forma iniziale, regola di crescita e colori controllano cosa può cambiare. Puoi aprire una variante o osservare una transizione animata. La transizione resta annullabile e si può interrompere. **Sorprendimi** esplora la modalità corrente.
+**Confronta quattro varianti** (Compare four variations) generates nearby alternatives to the current creation. Intensity and protection options for the initial shape, growth rule, and colors control what may change. Open a variation or watch an animated transition. Transitions can be interrupted and undone. **Sorprendimi** (Surprise me) explores the current generator.
 
-La colorazione può seguire lo spazio, la generazione oppure il ramo/copia. Nei generatori che sostituiscono interamente il livello precedente, tutti i tratti dell’ultimo livello hanno la stessa generazione; il confronto con il riferimento precedente aiuta a leggere la trasformazione.
+Color can follow spatial position, generation, or branch/copy family. In generators that completely replace the previous generation, every segment in the final result belongs to the same generation; comparing it with the previous-generation reference helps explain the transformation.
 
-## Una sola raccolta
+## One library
 
-**Le mie creazioni** comprende sia i file del progetto sia i salvataggi di questo browser. Puoi aprire, duplicare, rinominare ed eliminare. I nuovi salvataggi usano automaticamente il server locale quando disponibile, altrimenti il browser; il dialogo consente di scegliere esplicitamente.
+**Le mie creazioni** (My creations) combines project-file presets and browser saves. Open, duplicate, rename, or delete creations. New saves automatically use the local server when available, otherwise browser storage; the save dialog also lets you choose explicitly.
 
-- I file personali restano in **dist/user-presets.js**, da includere nei backup del repository. Il server conserva al massimo 24 preset su file e li riscrive atomicamente.
-- La raccolta complessiva contiene fino a 256 creazioni. Lo spazio disponibile nel browser può imporre un limite inferiore.
-- Il cestino conserva le ultime 32 eliminazioni e permette il recupero anche dopo una riapertura. Un preset su file richiede il server locale per essere eliminato.
-- Il backup completo include creazioni e cestino. L’importazione valida tutto prima di scrivere, evita copie identiche e conserva entrambi i progetti quando lo stesso identificatore ha contenuti diversi.
-- La vecchia raccolta `forma.gallery.v1` viene importata nella raccolta unica senza cancellare la chiave originale. La bozza rimane separata.
+- Personal project presets live in **dist/user-presets.js**; include this file in repository backups. The server stores up to 24 file-based presets and rewrites them atomically.
+- The combined library supports up to 256 creations. Available browser storage may impose a lower limit.
+- Trash retains the last 32 deletions and supports recovery after reopening the app. Deleting a file-based preset requires the local server.
+- Full backups include creations and trash. Imports validate everything before writing, skip identical copies, and preserve both projects when an identifier has different contents.
+- The legacy `forma.gallery.v1` collection is migrated without deleting its original storage key. The draft remains separate.
 
-Cambiare origine, browser o dispositivo non trasferisce automaticamente i dati locali: usa **Scarica backup completo** oppure il JSON della singola creazione. Cancellare i dati del browser elimina raccolta locale, cestino e bozza; i preset già scritti nei file rimangono disponibili.
+Changing origin, browser, or device does not automatically transfer local data. Use **Scarica backup completo** (Download full backup) or export an individual project as JSON. Clearing browser data removes its local library, trash, and draft; presets already written to project files remain available.
 
-## Esportazioni
+## Exports
 
-PNG e SVG usano la geometria completa, senza griglia o riferimenti, con sfondo normale o trasparente. Dimensioni configurabili da 128 a 8192 px per lato; il PNG ha un limite di 32 megapixel. Lo spessore può restare quello dello schermo oppure essere moltiplicato per 1,5 o 2. IFS pieni, colori strutturali, gradienti e rami assottigliati vengono conservati.
+PNG and SVG exports use the complete geometry without the grid or comparison overlays, with either the chosen background or transparency. Dimensions range from 128 to 8192 pixels per side; PNG exports are limited to 32 megapixels. Keep the screen stroke width or multiply it by 1.5 or 2. Filled IFS shapes, structural colors, gradients, and tapered branches are preserved.
 
-Il JSON versione 5 conserva regola, composizione, crescita, grammatica e stile; cronologia e camera restano preferenze della sessione. Sono leggibili i JSON 1–4. Progetti e backup si importano dalla raccolta.
+Version 5 JSON stores the rule, composition, growth settings, grammar, and style. History and camera settings remain session preferences. JSON versions 1–4 are supported. Import projects and backups through the library.
 
-Nei browser che supportano `MediaRecorder` e `Canvas.captureStream`, **Registra la crescita · WebM** salva il disegno animato come appare sul canvas, inclusa l’eventuale griglia. La registrazione termina alla fine della crescita, con il pulsante di arresto oppure dopo 30 secondi. Nessun audio viene acquisito.
+In browsers supporting `MediaRecorder` and `Canvas.captureStream`, **Registra la crescita · WebM** (Record growth) captures the animated canvas as displayed, including the grid if enabled. Recording stops when growth finishes, when you press Stop, or after 30 seconds. No audio is captured.
 
-## Architettura
+## Architecture
 
-`dist/` contiene i sorgenti eseguibili, non un output generato: non cancellarla. Nessun passaggio di build è necessario.
+`dist/` contains executable source files, not generated build output. Do not delete it. No build step is required.
 
-| File | Responsabilità |
+| File | Responsibility |
 | --- | --- |
-| `engine.js`, `constraints.js` | Geometria e costruzione originale, compatibilità 1–4 |
-| `generators.js` | Schema 5, composizioni, crescita, piegature, IFS e L-system |
-| `history.js` | Cronologia di progetto e identità di salvataggio |
-| `renderer.js` | Rendering comune a canvas, miniature e SVG |
-| `worker.js` | Geometria, riferimenti e rendering delle scene pesanti |
-| `library.js` | Persistenza, migrazione, backup e cestino |
-| `presets.js` | Ricette e suggerimenti dei 40 esempi |
-| `experience.js`, `experience.css` | Esperienza d’uso e controlli contestuali |
-| `app.js` | Editor, camera, eventi e coordinamento |
-| `serve.py` | Server loopback, validazione e scrittura atomica |
+| `engine.js`, `constraints.js` | Original geometry and construction; version 1–4 compatibility |
+| `generators.js` | Version 5 schema, compositions, growth, folding, IFS, and L-systems |
+| `history.js` | Project history and save identity |
+| `renderer.js` | Shared rendering for Canvas, thumbnails, and SVG |
+| `worker.js` | Geometry, comparison generations, and rendering of dense scenes |
+| `library.js` | Persistence, migration, backups, and trash |
+| `presets.js` | Recipes and suggestions for the 40 examples |
+| `experience.js`, `experience.css` | User experience and contextual controls |
+| `app.js` | Editor, camera, events, and coordination |
+| `serve.py` | Loopback server, validation, and atomic writes |
 
-I limiti sono 131.072 segmenti per linee, rami, IFS e L-system; 1.048.576 per le piegature. Si conservano generazioni complete e il costo delle simmetrie è incluso. Le grammatiche hanno anche un limite di espansione di 1.048.576 simboli. Un’importazione ha un limite di 2 MB.
+Limits are 131,072 segments for curves, branches, IFS, and L-systems, and 1,048,576 for folding. Complete generations are retained, with symmetry copies included in the budget. L-system expansion is also limited to 1,048,576 symbols. Imported files are limited to 2 MB.
 
-Con HTTP locale, il worker calcola geometria e livelli di confronto. Oltre 65.536 segmenti il rendering usa OffscreenCanvas quando disponibile: la navigazione riutilizza un’immagine e la vista viene affinata in background. I buffer esatti restano disponibili per le esportazioni. L’apertura diretta del file e i browser senza queste API usano un percorso alternativo che può essere meno reattivo nelle scene più dense.
+Over local HTTP, a worker calculates geometry and comparison generations. Above 65,536 segments, rendering uses OffscreenCanvas when available: navigation reuses an image while the view is refined in the background. Exact geometry buffers remain available for exports. Direct file access and browsers without these APIs use a fallback that may be less responsive for dense scenes.
 
-## Verifica
+## Testing
 
-Con Node.js 22 o successivo, senza installare pacchetti:
+With Node.js 22 or later, no package installation is required:
 
 ```sh
 node tests/engine.test.cjs
@@ -96,8 +96,8 @@ node tests/features.browser.mjs
 python -m unittest discover -s tests -p test_server.py
 ```
 
-Le suite browser richiedono Python e Chromium. Su Windows usano Chrome nel percorso standard; `CHROME_PATH` e `PYTHON_PATH` permettono percorsi alternativi. Usano le porte di debug 9347 e 9349, profili separati e copie temporanee del progetto: i preset reali non vengono modificati.
+Browser suites require Python and Chromium. On Windows, they use Chrome's standard installation path; set `CHROME_PATH` and `PYTHON_PATH` for alternative locations. They use debugging ports 9347 and 9349, isolated profiles, and temporary project copies, leaving real presets untouched.
 
-La verifica comprende editor, regressioni di precisione e cronologia, tutti i preset, salvataggi dei nuovi generatori, trascinamento di asse e copie, backup/cestino, transizioni, PNG/SVG trasparenti, registrazione WebM e mobile simulato. Le schermate e la misura indicativa delle prestazioni sono in `.qa-browser/`, ignorata da Git. Sono ancora opportune prove su dispositivi touch fisici, lettori di schermo e altri browser prima di dichiararli supportati.
+Checks cover the editor, precision and history regressions, every preset, persistence for new generators, dragging axes and copies, backups and trash, transitions, transparent PNG/SVG exports, WebM recording, and simulated mobile layouts. Screenshots and indicative performance measurements are stored in `.qa-browser/`, which Git ignores. Physical touch devices, screen readers, and other browsers still need testing before being declared supported.
 
-Riferimenti per le famiglie matematiche: [Koch](https://mathworld.wolfram.com/KochSnowflake.html), [IFS](https://paulbourke.net/fractals/ifs/), [Algorithmic Botany](https://algorithmicbotany.org/papers/). Le varianti decorative vengono presentate con nomi descrittivi; non viene attribuita una dimensione frattale ai generatori arbitrari.
+Mathematical references: [Koch snowflake](https://mathworld.wolfram.com/KochSnowflake.html), [IFS](https://paulbourke.net/fractals/ifs/), and [Algorithmic Botany](https://algorithmicbotany.org/papers/). Decorative variations use descriptive names; arbitrary generators are not assigned a claimed fractal dimension.
