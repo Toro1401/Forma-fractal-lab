@@ -1,17 +1,26 @@
 // Optional browser integration check. Requires an installed Chromium browser, no npm packages.
 import {spawn} from 'node:child_process';
-import {writeFileSync,mkdirSync} from 'node:fs';
-import {resolve,dirname} from 'node:path';
+import {writeFileSync,mkdirSync,cpSync,mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {resolve,dirname,sep} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const qa=resolve(root,'.qa-browser');mkdirSync(qa,{recursive:true});
+const serverRoot=mkdtempSync(resolve(root,'.qa-server-'));
+cpSync(resolve(root,'dist'),resolve(serverRoot,'dist'),{recursive:true});
+cpSync(resolve(root,'serve.py'),resolve(serverRoot,'serve.py'));
+writeFileSync(resolve(serverRoot,'dist/user-presets.js'),'// Preset personali di Forma. Questo file fa parte del progetto.\nglobalThis.FORMA_USER_PRESETS = {"version":1,"presets":[]};\n');
+const localServer=spawn(process.env.PYTHON_PATH||'python',['-u',resolve(serverRoot,'serve.py'),'--port','0'],{stdio:['ignore','pipe','pipe'],windowsHide:true});
+let serverLog='';localServer.stderr.on('data',chunk=>serverLog+=chunk);
+const serverReady=new Promise((ok,fail)=>{const timer=setTimeout(()=>fail(new Error('Local server did not start: '+serverLog)),15000);localServer.on('error',error=>{clearTimeout(timer);fail(error);});localServer.stdout.on('data',chunk=>{const match=String(chunk).match(/http:\/\/127\.0\.0\.1:\d+/);if(match){clearTimeout(timer);ok(match[0]);}});});
 const chrome=process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const port=9347;
 const child=spawn(chrome,['--headless','--no-sandbox','--disable-gpu','--no-first-run','--no-default-browser-check',`--user-data-dir=${qa}`,`--remote-debugging-port=${port}`,'about:blank'],{stdio:'ignore',windowsHide:true});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 let socket;
 try{
+  const appURL=await serverReady;
   let tabs;
   for(let i=0;i<100;i++){try{tabs=await(await fetch(`http://127.0.0.1:${port}/json/list`)).json();break;}catch{await sleep(150);}}
   assert.ok(tabs,'Chromium debugging endpoint unavailable');
@@ -25,19 +34,66 @@ try{
   const idle=()=>wait(`document.getElementById('renderStatus')?.textContent==='Pronto a esplorare'`);
   const click=async id=>{await evaluate(`document.getElementById(${JSON.stringify(id)}).click()`);await idle();};
   await cdp('Runtime.enable');await cdp('Page.enable');
+  const cleanStorage=await cdp('Page.addScriptToEvaluateOnNewDocument',{source:'try { localStorage.clear(); } catch {}'});
   await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-  await cdp('Page.navigate',{url:pathToFileURL(resolve(root,'dist/index.html')).href});
+  // Reproduce the previous cached script binding a control removed from the new HTML.
+  const fixtureHTML=readFileSync(resolve(serverRoot,'dist/index.html'),'utf8');
+  const currentScript=readFileSync(resolve(serverRoot,'dist/app.js'),'utf8');
+  const legacyScript=currentScript.replace("  $('addFold').onclick=", "  window.__legacyFormaLoaded=true;$('resetOrigin').onclick=()=>{};\n  $('addFold').onclick=");
+  let legacyRequests=0;
+  const cacheFixture=createServer((request,response)=>{
+    const url=new URL(request.url,'http://localhost');
+    if(url.pathname==='/old.html'||url.pathname==='/'){
+      response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+      response.end(url.pathname==='/old.html'?fixtureHTML.replace(/app\.js\?v=[^"]+/, 'app.js'):fixtureHTML);return;
+    }
+    if(url.pathname==='/app.js'&&!url.search){
+      legacyRequests++;response.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'public, max-age=3600'});response.end(legacyScript);return;
+    }
+    const name=url.pathname.slice(1);
+    if(!['app.js','engine.js','constraints.js','user-presets.js','styles.css','generators.js','history.js','renderer.js','library.js','presets.js','experience.js','experience.css','worker.js'].includes(name)){response.writeHead(404);response.end();return;}
+    response.writeHead(200,{'Content-Type':name.endsWith('.css')?'text/css':'text/javascript','Cache-Control':'no-store'});
+    response.end(readFileSync(resolve(serverRoot,'dist',name)));
+  });
+  await new Promise(ok=>cacheFixture.listen(0,'127.0.0.1',ok));
+  try{
+    const fixtureURL=`http://127.0.0.1:${cacheFixture.address().port}`;
+    for(let i=0;i<2;i++){
+      const oldTime=await evaluate('performance.timeOrigin');
+      await cdp('Page.navigate',{url:fixtureURL+'/old.html'});
+      await wait(`performance.timeOrigin!==${oldTime}&&window.__legacyFormaLoaded===true`);
+      assert.equal(await evaluate(`document.getElementById('pointSelect').options.length`),0);
+    }
+    assert.equal(legacyRequests,1,'The obsolete script must actually be reused from browser cache');
+    await cdp('Page.navigate',{url:fixtureURL+'/'});
+    await wait(`document.getElementById('pointSelect')?.options.length===4`);await idle();
+    assert.equal(await evaluate('window.__legacyFormaLoaded===true'),false);
+    assert.equal(legacyRequests,1);
+    console.log('PASS startup after a cached obsolete script previously left the editor blank');
+  }finally{
+    cacheFixture.closeAllConnections();await new Promise(ok=>cacheFixture.close(ok));
+  }
+  errors.length=0; // The two legacy-page failures above were deliberately reproduced.
+  await cdp('Page.navigate',{url:appURL+'/'});
   await wait(`!!document.querySelector('.preset')`);await idle();
-  await evaluate(`localStorage.clear()`);await cdp('Page.reload');await wait(`document.querySelectorAll('.preset').length===6`);await idle();
+  await cdp('Page.removeScriptToEvaluateOnNewDocument',{identifier:cleanStorage.identifier});
   assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),1024);
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),true);
-  console.log('PASS initial rendering, six presets, desktop layout');
+  console.log('PASS initial rendering, 40 presets, desktop layout');
+  assert.equal(await evaluate(`document.querySelectorAll('.preset-family').length`),6);
+  assert.equal(await evaluate(`document.getElementById('widthValue').tagName`),'OUTPUT');
+  await click('nextIteration');assert.equal(await evaluate(`document.getElementById('iterations').value`),'6');
+  await click('previousIteration');assert.equal(await evaluate(`document.getElementById('iterations').value`),'5');
+  await evaluate(`document.getElementById('previousLayer').click()`);await sleep(50);
+  await evaluate(`document.getElementById('previousLayer').click()`);
+
+  assert.equal(await evaluate(`document.documentElement.scrollHeight<=innerHeight`),true);
   await sleep(150);
   writeFileSync(resolve(root,'desktop.png'),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));
   await evaluate(`document.querySelector('[data-id="levy"]').click()`);await idle();
   assert.equal(await evaluate(`document.getElementById('creationName').textContent`),'Curva di Lévy');
   assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),1024);
-  const r=await evaluate(`(()=>{const r=document.getElementById('generator').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+19};})()`);
+  const r=await evaluate(`(()=>{const c=document.getElementById('generator');c.scrollIntoView({block:'center'});const r=c.getBoundingClientRect(),pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let x=0,y=0,n=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]===255&&pixels[i+1]===194&&pixels[i+2]===185){x+=(i/4)%c.width;y+=Math.floor(i/4/c.width);n++;}if(!n)throw new Error('Selected red node is not visible');return {x:r.x+x/n*r.width/c.width,y:r.y+y/n*r.height/c.height};})()`);
   await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:r.x,y:r.y,button:'left',clickCount:1});
   await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:r.x+15,y:r.y+25,button:'left',buttons:1});
   await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:r.x+15,y:r.y+25,button:'left',clickCount:1});await idle();
@@ -46,6 +102,49 @@ try{
   await click('undoBtn');assert.equal(await evaluate(`document.getElementById('creationName').textContent`),'Curva di Lévy');
   await click('redoBtn');assert.equal(await evaluate(`document.getElementById('creationName').textContent`),'Forme in libertà');
   console.log('PASS visible Lévy node, pointer drag, undo and redo');
+  await evaluate(`document.querySelector('[data-id="koch"]').click()`);await idle();
+  const originalP1=await evaluate(`document.getElementById('pointX').value`);
+  await evaluate(`document.getElementById('pointSelect').value='2';document.getElementById('pointSelect').dispatchEvent(new Event('change'));document.getElementById('pointX').value='-0.25';document.getElementById('pointX').dispatchEvent(new Event('change'));`);await idle();
+  assert.equal(await evaluate(`document.getElementById('pointSelect').value`),'2');assert.equal(await evaluate(`document.getElementById('pointX').value`),'-0.25');
+  assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(1, 0)');
+  await evaluate(`document.getElementById('pointSelect').value='0';document.getElementById('pointSelect').dispatchEvent(new Event('change'));`);
+  assert.equal(await evaluate(`document.getElementById('pointX').value`),originalP1);
+  await evaluate(`document.getElementById('pointX').value='1.2';document.getElementById('pointX').dispatchEvent(new Event('change'));`);await idle();assert.equal(await evaluate(`document.getElementById('pointSelect').value`),'0');assert.equal(await evaluate(`document.getElementById('pointX').value`),'1.2');
+  console.log('PASS negative X, X beyond B and stable point identity across crossings');
+  await evaluate(`document.querySelector('[data-id="koch"]').click();const select=document.getElementById('pointSelect');select.value='3';select.dispatchEvent(new Event('change'));const x=document.getElementById('pointX'),y=document.getElementById('pointY');x.value='-0.4';x.dispatchEvent(new Event('change'));y.value='0.2';y.dispatchEvent(new Event('change'));`);await idle();
+  assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(-0.4, 0.2)');assert.equal(await evaluate(`document.getElementById('removeFold').disabled`),true);
+  assert.equal(await evaluate(`[...document.getElementById('pointSelect').options].some(o=>o.text==='A')`),false);
+  assert.equal(await evaluate(`document.getElementById('originValue').textContent`),'(0, 0)');
+  const selectedNode=()=>evaluate(`(()=>{const c=document.getElementById('generator');c.scrollIntoView({block:'center'});const r=c.getBoundingClientRect(),pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let x=0,y=0,n=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]===255&&pixels[i+1]===194&&pixels[i+2]===185){x+=(i/4)%c.width;y+=Math.floor(i/4/c.width);n++;}if(!n)throw new Error('Selected endpoint is not visible');return {x:r.x+x/n*r.width/c.width,y:r.y+y/n*r.height/c.height};})()`);
+  for(const endpoint of ['3']){
+    await evaluate(`document.getElementById('pointSelect').value=${JSON.stringify(endpoint)};document.getElementById('pointSelect').dispatchEvent(new Event('change'));`);
+    const p=await selectedNode(),before=await evaluate(`document.getElementById('pointX').value`);
+    await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:p.x,y:p.y,button:'left',clickCount:1});await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:p.x+12,y:p.y-9,button:'left',buttons:1});await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:p.x+12,y:p.y-9,button:'left',clickCount:1});await idle();
+    assert.equal(await evaluate(`document.getElementById('pointSelect').value`),endpoint);assert.notEqual(await evaluate(`document.getElementById('pointX').value`),before);assert.equal(await evaluate(`document.querySelectorAll('[data-length]').length`),4);
+  }
+  const movedB=await evaluate(`document.getElementById('endpointValue').textContent`);
+  await click('undoBtn');assert.notEqual(await evaluate(`document.getElementById('endpointValue').textContent`),movedB);await click('redoBtn');assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),movedB);
+  assert.equal(await evaluate(`document.getElementById('originValue').textContent`),'(0, 0)');
+  assert.equal(await evaluate(`document.getElementById('resetOrigin')`),null);
+  console.log('PASS fixed A, manual B coordinates, B dragging and endpoint history');
+  await evaluate(`document.querySelector('[data-id="koch"]').click()`);await idle();
+  await evaluate(`const length=document.querySelector('[data-length="0"]');length.value='0.6';length.dispatchEvent(new Event('change'));document.getElementById('equalSides').click();document.getElementById('applyConstraints').click();`);await idle();
+  assert.equal(await evaluate(`document.getElementById('constraintStatus').dataset.state`),'ok');
+  assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(1.8, 0)');
+  assert.equal(await evaluate(`[...document.querySelectorAll('[data-length]')].every(n=>Math.abs(Number(n.value)-.6)<1e-6)`),true);
+  await evaluate(`const angle=document.querySelector('[data-angle="0"]');angle.value='90';angle.dispatchEvent(new Event('change'));document.getElementById('applyConstraints').click();`);await idle();
+  assert.equal(await evaluate(`document.querySelector('[data-angle="0"]').value`),'90');
+  const previousEnd=await evaluate(`document.getElementById('endpointValue').textContent`);
+  await evaluate(`(()=>{const c=document.querySelector('.controls'),g=document.getElementById('generator');c.scrollTop+=g.getBoundingClientRect().top-c.getBoundingClientRect().top-15;})()`);await sleep(100);
+  writeFileSync(resolve(qa,'construction.png'),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  await evaluate(`const other=document.querySelector('[data-length="1"]');other.value='0.3';other.dispatchEvent(new Event('change'));document.getElementById('applyConstraints').click();`);await idle();
+  assert.equal(await evaluate(`document.getElementById('constraintStatus').dataset.state`),'error');assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),previousEnd);
+  await click('clearConstraints');
+  await evaluate(`const invalid=document.querySelector('[data-angle="0"]');invalid.value='220';invalid.dispatchEvent(new Event('change'));document.getElementById('applyConstraints').click();`);await idle();assert.equal(await evaluate(`document.getElementById('constraintStatus').dataset.state`),'error');assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),previousEnd);await click('clearConstraints');
+  const beforeDirection=await evaluate(`document.getElementById('fractal').toDataURL()`);
+  await evaluate(`document.querySelector('[data-direction="1"]').click()`);await idle();await sleep(80);
+  assert.equal(await evaluate(`document.querySelector('[data-direction="1"]').getAttribute('aria-pressed')`),'true');assert.notEqual(await evaluate(`document.getElementById('fractal').toDataURL()`),beforeDirection);
+  console.log('PASS congruence, manual angle, adaptive B, incompatible constraints and per-side development');
   await evaluate(`document.querySelector('[data-id="minkowski"]').click();document.getElementById('iterations').value=10;document.getElementById('iterations').dispatchEvent(new Event('input'));document.getElementById('iterations').dispatchEvent(new Event('change'));`);await idle();
   assert.equal(await evaluate(`document.getElementById('segmentCount').textContent`),'32.768');
   assert.equal(await evaluate(`document.getElementById('complexityNotice').hidden`),false);
@@ -53,26 +152,152 @@ try{
   console.log('PASS capped complexity at requested depth 10, responsive zoom and fit');
   await evaluate(`document.querySelector('[data-id="koch"]').click()`);await idle();
   await click('playBtn');await sleep(100);assert.equal(await evaluate(`document.getElementById('playBtn').getAttribute('aria-pressed')`),'true');await click('playBtn');
-  assert.equal(await evaluate(`document.getElementById('iterations').value`),'5');
-  await click('saveBtn');await evaluate(`document.getElementById('saveName').value='Prova <sicura>';document.getElementById('saveForm').requestSubmit();`);await idle();
+  assert.equal(await evaluate(`document.getElementById('iterations').value`),'0');
+  await evaluate(`document.getElementById('iterations').value='5';document.getElementById('iterations').dispatchEvent(new Event('input'));document.getElementById('iterations').dispatchEvent(new Event('change'));`);await idle();
+  assert.equal(await evaluate(`document.getElementById('saveBtn').closest('.lab-actions')!==null`),true);
+  await click('saveBtn');await evaluate(`document.getElementById('saveName').value='Prova <sicura>';document.getElementById('saveForm').requestSubmit();`);await wait(`!document.getElementById('saveDialog').open`);await idle();
+  assert.equal(await evaluate(`document.querySelectorAll('.preset[data-custom=true]').length`),1);assert.ok(readFileSync(resolve(serverRoot,'dist/user-presets.js'),'utf8').includes('Prova <sicura>'));
+  const reload=async()=>{const previous=await evaluate('performance.timeOrigin');await cdp('Page.reload');await wait(`performance.timeOrigin!==${previous}&&document.querySelectorAll('.preset').length>=6`);await idle();};
+  const clearOnce=await cdp('Page.addScriptToEvaluateOnNewDocument',{source:'localStorage.clear()'});await reload();await cdp('Page.removeScriptToEvaluateOnNewDocument',{identifier:clearOnce.identifier});
+  assert.equal(await evaluate(`document.querySelectorAll('.preset[data-custom=true]').length`),1);
+  await evaluate(`document.querySelector('.preset[data-custom=true]').click();document.getElementById('lineWidth').value='15';document.getElementById('lineWidth').dispatchEvent(new Event('input'));document.getElementById('lineWidth').dispatchEvent(new Event('change'));document.getElementById('pointY').value='0.2';document.getElementById('pointY').dispatchEvent(new Event('change'));`);await idle();
+  await click('saveBtn');assert.equal(await evaluate(`document.getElementById('saveMode').value`),'update');await evaluate(`document.getElementById('saveName').value='Prova aggiornata';document.getElementById('saveForm').requestSubmit();`);await wait(`!document.getElementById('saveDialog').open`);await reload();
+  assert.equal(await evaluate(`document.querySelectorAll('.preset[data-custom=true]').length`),1);await evaluate(`document.querySelector('.preset[data-custom=true]').click()`);await idle();assert.equal(await evaluate(`document.getElementById('lineWidth').value`),'15');assert.equal(await evaluate(`document.getElementById('pointY').value`),'0.2');assert.equal(await evaluate(`document.getElementById('creationName').textContent`),'Prova aggiornata');
+  console.log('PASS preset source persistence without browser data, reload, reopening and editing existing preset');
+  await evaluate(`(()=>{const project=globalThis.FORMA_USER_PRESETS.presets[0].project,c=document.createElement('canvas');c.width=48;c.height=30;c.getContext('2d').fillRect(0,0,48,30);localStorage.setItem('forma.gallery.v1',JSON.stringify([{id:'legacy-test',project,thumbnail:c.toDataURL('image/jpeg'),date:new Date().toISOString()}]));})()`);await reload();
   assert.equal(await evaluate(`document.getElementById('galleryCount').textContent`),'1');
-  await click('galleryBtn');assert.equal(await evaluate(`document.querySelector('.gallery-open strong').textContent`),'Prova <sicura>');
-  assert.equal(await evaluate(`document.querySelector('.gallery-open img').naturalWidth>0`),true);
+  await click('galleryBtn');assert.equal(await evaluate(`document.querySelector('.gallery-open strong').textContent`),'Prova aggiornata');
+  assert.equal(await evaluate(`!!document.querySelector('.gallery-open svg path')`),true);
   await evaluate(`document.querySelector('.gallery-open').click()`);await idle();
-  console.log('PASS animation stop restores depth; collection thumbnail, safe names and reopen');
+  console.log('PASS animation pause retains the current depth; collection thumbnail, safe names and reopen');
+  await evaluate(`document.getElementById('colorStart').value='#ff0000';document.getElementById('colorStart').dispatchEvent(new Event('input'));document.getElementById('colorStart').dispatchEvent(new Event('change'));document.getElementById('colorEnd').value='#0000ff';document.getElementById('colorEnd').dispatchEvent(new Event('input'));document.getElementById('colorEnd').dispatchEvent(new Event('change'));document.getElementById('lineColorMode').value='solid';document.getElementById('lineColorMode').dispatchEvent(new Event('change'));`);await sleep(100);
+  const countColors=()=>evaluate(`(()=>{const c=document.getElementById('fractal'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let red=0,blue=0;for(let i=0;i<d.length;i+=4){if(d[i]>100&&d[i+1]<50&&d[i+2]<80)red++;if(d[i+2]>100&&d[i+1]<50&&d[i]<80)blue++;}return {red,blue};})()`);
+  const solidPixels=await countColors();assert.ok(solidPixels.red>10);assert.equal(solidPixels.blue,0);
+  await evaluate(`document.getElementById('lineColorMode').value='gradient';document.getElementById('lineColorMode').dispatchEvent(new Event('change'));`);await sleep(100);const gradientPixels=await countColors();assert.ok(gradientPixels.red>10);assert.ok(gradientPixels.blue>10);
+  await evaluate(`document.getElementById('pointSelect').value='3';document.getElementById('pointSelect').dispatchEvent(new Event('change'));document.getElementById('pointX').value='-0.25';document.getElementById('pointX').dispatchEvent(new Event('change'));document.getElementById('pointY').value='0.15';document.getElementById('pointY').dispatchEvent(new Event('change'));`);await idle();
+  console.log('PASS solid color and continuous custom gradient in Canvas');
   await evaluate(`window.__downloads=[];window.__blobs=new Map();const create=URL.createObjectURL.bind(URL);URL.createObjectURL=b=>{const u=create(b);window.__blobs.set(u,b);return u;};HTMLAnchorElement.prototype.click=function(){window.__downloads.push({name:this.download,url:this.href});};`);
   await click('exportBtn');await click('exportPng');await wait(`window.__downloads.length===1`);
   const png=await evaluate(`(async()=>{const b=window.__blobs.get(window.__downloads[0].url);const img=await createImageBitmap(b);return {w:img.width,h:img.height,size:b.size};})()`);
   assert.equal(png.w,2400);assert.equal(png.h,1800);assert.ok(png.size>20000);
   await click('exportSvg');const svg=await evaluate(`(async()=>{const t=await window.__blobs.get(window.__downloads[1].url).text();const doc=new DOMParser().parseFromString(t,'image/svg+xml');return {paths:doc.querySelectorAll('path').length,error:!!doc.querySelector('parsererror'),finite:!t.includes('NaN')&&!t.includes('Infinity')};})()`);
-  assert.equal(svg.error,false);assert.equal(svg.finite,true);assert.equal(svg.paths,96);
-  await click('exportJson');const project=await evaluate(`(async()=>JSON.parse(await window.__blobs.get(window.__downloads[2].url).text()))()`);assert.equal(project.version,1);assert.equal(project.iterations,5);
+  assert.equal(svg.error,false);assert.equal(svg.finite,true);assert.equal(svg.paths,1);
+  const stops=await evaluate(`(async()=>{const doc=new DOMParser().parseFromString(await window.__blobs.get(window.__downloads[1].url).text(),'image/svg+xml');return [...doc.querySelectorAll('linearGradient stop')].map(n=>n.getAttribute('stop-color'));})()`);assert.deepEqual(stops,['#ff0000','#0000ff']);
+  await click('exportJson');const project=await evaluate(`(async()=>JSON.parse(await window.__blobs.get(window.__downloads[2].url).text()))()`);assert.equal(project.version,5);assert.equal(project.iterations,5);assert.equal(project.directions.length,4);assert.equal(project.constraints.turns.length,3);assert.deepEqual(project.origin,{u:0,v:0});assert.deepEqual(project.endpoint,{u:-.25,v:.15});assert.equal(project.colorMode,'gradient');assert.equal(project.colorStart,'#ff0000');assert.equal(project.colorEnd,'#0000ff');
   await evaluate(`document.getElementById('exportDialog').close()`);
   console.log('PASS PNG dimensions and content, valid SVG, round-trip project JSON');
+  await evaluate(`document.getElementById('lineColorMode').value='solid';document.getElementById('lineColorMode').dispatchEvent(new Event('change'));`);
+  await click('galleryBtn');await evaluate(`(()=>{const d=new DataTransfer();d.items.add(new File([${JSON.stringify(JSON.stringify({...project,origin:{u:.4,v:-.2},folds:project.folds.map(p=>({u:p.u+.4,v:p.v-.2})),endpoint:{u:project.endpoint.u+.4,v:project.endpoint.v-.2}}))}],'v3.json',{type:'application/json'}));const input=document.getElementById('importFile');input.files=d.files;input.dispatchEvent(new Event('change'));})()`);await wait(`document.getElementById('endpointValue').textContent==='(-0.25, 0.15)'`);await idle();await sleep(350);await reload();await wait(`document.getElementById('endpointValue').textContent==='(-0.25, 0.15)'`);await idle();
+  assert.equal(await evaluate(`document.getElementById('lineColorMode').value`),'gradient');assert.equal(await evaluate(`document.getElementById('colorStart').value`),'#ff0000');assert.equal(await evaluate(`document.getElementById('colorEnd').value`),'#0000ff');
+  assert.equal(await evaluate(`document.querySelectorAll('.preset[aria-pressed="true"]').length`),0);
+  console.log('PASS version 4 import and reload retain fixed origin, movable B and gradient colors');
+  await click('galleryBtn');
+  await evaluate(`(()=>{const constraints={lengths:[1,2,1],groups:[1,0,1],turns:[-60,-60],heading:60},result=FractalConstraints.solve([{u:.3,v:.5},{u:.7,v:.5}],{u:3,v:0},constraints),project={version:2,name:'Costruzione vincolata',folds:result.folds,endpoint:result.endpoint,directions:[-1,1,-1],constraints,iterations:3,mirror:false,palette:'aurora',lineWidth:1.4},files=new DataTransfer();files.items.add(new File([JSON.stringify(project)],'vincolata.json',{type:'application/json'}));const input=document.getElementById('importFile');input.files=files.files;input.dispatchEvent(new Event('change'));})()`);
+  await wait(`document.getElementById('creationName').textContent==='Costruzione vincolata'`);await idle();await sleep(350);await reload();await wait(`document.getElementById('creationName').textContent==='Costruzione vincolata'`);await idle();
+  assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(3, 0)');assert.equal(await evaluate(`document.querySelector('[data-direction="0"]').getAttribute('aria-pressed')`),'true');assert.equal(await evaluate(`document.querySelector('[data-lock-angle="0"]').checked`),true);assert.equal(await evaluate(`document.querySelector('[data-group="2"]').value`),'1');
+  console.log('PASS version 2 import and reload retain B, directions, length groups and angles');
   await click('galleryBtn');await evaluate(`(()=>{const d=new DataTransfer();d.items.add(new File(['{"version":1,"name":"Importata","folds":[{"u":0.5,"v":0.4}],"iterations":6,"mirror":false,"palette":"ember","lineWidth":1.4}'],'test.json',{type:'application/json'}));const input=document.getElementById('importFile');input.files=d.files;input.dispatchEvent(new Event('change'));})()`);await wait(`document.getElementById('creationName').textContent==='Importata'`);await idle();
   assert.equal(await evaluate(`document.getElementById('segmentCount').textContent`),'64');
-  await sleep(350);await cdp('Page.reload');await wait(`document.getElementById('creationName').textContent==='Importata'`);await idle();assert.equal(await evaluate(`document.getElementById('galleryCount').textContent`),'1');
+  await sleep(350);await reload();await wait(`document.getElementById('creationName').textContent==='Importata'`);await idle();assert.equal(await evaluate(`document.getElementById('galleryCount').textContent`),'1');
   console.log('PASS import and draft/collection persistence across reload');
+  await evaluate(`document.querySelector('[data-id="tree"]').click()`);await idle();
+  assert.equal(await evaluate(`document.getElementById('generatorMode').value`),'branches');
+  assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),8191);
+  assert.equal(await evaluate(`document.querySelectorAll('.branch-card').length`),2);
+  assert.equal(await evaluate(`document.getElementById('polylineRules').hidden`),true);
+  const branchPixels=await evaluate(`(()=>{const c=document.getElementById('fractal'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let dark=0,white=0;for(let i=0;i<d.length;i+=4){if(d[i]<70&&d[i+1]<70&&d[i+2]<70)dark++;if(d[i]>250&&d[i+1]>250&&d[i+2]>250)white++;}return {dark,white};})()`);
+  assert.ok(branchPixels.dark>1000);assert.ok(branchPixels.dark>10000);
+  writeFileSync(resolve(qa,'tree.png'),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  await evaluate(`document.querySelector('[data-id="spiral-tree"]').click()`);await idle();
+  assert.equal(await evaluate(`document.getElementById('iterations').value`),'28');
+  assert.equal(await evaluate(`document.getElementById('lineWidth').value`),'90');
+  writeFileSync(resolve(qa,'spiral.png'),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  console.log('PASS symmetric tree and spiral presets render dark strokes on a white background');
+  await evaluate(`const a=document.querySelector('[data-branch-angle="0"]');a.value='37';a.dispatchEvent(new Event('change'));`);await idle();
+  await click('undoBtn');assert.equal(await evaluate(`document.querySelector('[data-branch-angle="0"]').value`),'30');await click('redoBtn');assert.equal(await evaluate(`document.querySelector('[data-branch-angle="0"]').value`),'37');
+  for(const [key,value] of [['ratio','63'],['attach','70']]){
+    await evaluate(`(()=>{const input=document.querySelector('[data-branch-${key}="0"]');input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('change'));})()`);await idle();
+  }
+  await evaluate(`document.querySelector('[data-branch-flip="0"]').click()`);await idle();
+  await click('addFold');assert.equal(await evaluate(`document.querySelectorAll('.branch-card').length`),3);await click('removeFold');assert.equal(await evaluate(`document.querySelectorAll('.branch-card').length`),2);
+  await evaluate(`document.getElementById('pointSelect').value='1';document.getElementById('pointSelect').dispatchEvent(new Event('change'));document.querySelector('.controls').scrollTop+=document.getElementById('generator').getBoundingClientRect().top-document.querySelector('.controls').getBoundingClientRect().top-20;`);await sleep(80);
+  const branchNode=await selectedNode(),beforeBranchDrag=await evaluate(`document.querySelector('[data-branch-angle="0"]').value`);
+  await cdp('Input.dispatchMouseEvent',{type:'mousePressed',x:branchNode.x,y:branchNode.y,button:'left',clickCount:1});await cdp('Input.dispatchMouseEvent',{type:'mouseMoved',x:branchNode.x+8,y:branchNode.y-8,button:'left',buttons:1});await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',x:branchNode.x+8,y:branchNode.y-8,button:'left',clickCount:1});await idle();
+  assert.notEqual(await evaluate(`document.querySelector('[data-branch-angle="0"]').value`),beforeBranchDrag);
+  await evaluate(`document.getElementById('pointSelect').value='0';document.getElementById('pointSelect').dispatchEvent(new Event('change'));document.getElementById('pointX').value='0.15';document.getElementById('pointX').dispatchEvent(new Event('change'));`);await idle();assert.equal(await evaluate(`document.getElementById('originValue').textContent`),'(0, 0)');
+  await evaluate(`document.getElementById('minBranch').value='0.6';document.getElementById('minBranch').dispatchEvent(new Event('change'));document.getElementById('taper').value='55';document.getElementById('taper').dispatchEvent(new Event('input'));document.getElementById('taper').dispatchEvent(new Event('change'));`);await idle();
+  console.log('PASS branch angles, scales, attachment, reflection, topology, handle dragging, trunk and history');
+  await click('saveBtn');await evaluate(`document.getElementById('saveName').value='Spirale modificata';document.getElementById('saveForm').requestSubmit();`);await wait(`!document.getElementById('saveDialog').open`);await reload();
+  assert.equal(await evaluate(`document.getElementById('generatorMode').value`),'branches');assert.equal(await evaluate(`document.getElementById('minBranch').value`),'0.6');assert.equal(await evaluate(`document.getElementById('taper').value`),'55');assert.equal(await evaluate(`document.querySelector('[data-branch-flip="0"]').checked`),true);
+  const persistentBranch=JSON.parse(readFileSync(resolve(serverRoot,'dist/user-presets.js'),'utf8').split('globalThis.FORMA_USER_PRESETS = ')[1].trim().slice(0,-1)).presets.find(p=>p.project.name==='Spirale modificata');assert.ok(persistentBranch);assert.equal(persistentBranch.project.version,5);assert.equal(persistentBranch.project.branches[0].attach,.7);
+  await evaluate(`window.__downloads=[];window.__blobs=new Map();const create=URL.createObjectURL.bind(URL);URL.createObjectURL=b=>{const u=create(b);window.__blobs.set(u,b);return u;};HTMLAnchorElement.prototype.click=function(){window.__downloads.push({name:this.download,url:this.href});};`);
+  await click('exportBtn');await click('exportSvg');
+  const branchSvg=await evaluate(`(async()=>{const text=await window.__blobs.get(window.__downloads[0].url).text(),doc=new DOMParser().parseFromString(text,'image/svg+xml');return {error:!!doc.querySelector('parsererror'),moves:[...doc.querySelectorAll('path')].reduce((sum,p)=>sum+(p.getAttribute('d').match(/M/g)||[]).length,0),widths:[...doc.querySelectorAll('path')].map(p=>Number(p.getAttribute('stroke-width'))),background:doc.querySelector('rect').getAttribute('fill')};})()`);
+  assert.equal(branchSvg.error,false);assert.equal(branchSvg.moves,Number((await evaluate(`document.getElementById('segmentCount').textContent`)).replaceAll('.','')));assert.ok(new Set(branchSvg.widths).size>2);assert.equal(branchSvg.background,'#111515');
+  await click('exportPng');await wait(`window.__downloads.length===2`);
+  assert.equal(await evaluate(`(async()=>{const image=await createImageBitmap(window.__blobs.get(window.__downloads[1].url)),c=document.createElement('canvas');c.width=image.width;c.height=image.height;const ctx=c.getContext('2d');ctx.drawImage(image,0,0);return [...ctx.getImageData(0,0,1,1).data].join(',');})()`),'17,21,21,255');
+  await click('exportJson');const branchJson=await evaluate(`(async()=>JSON.parse(await window.__blobs.get(window.__downloads[2].url).text()))()`);assert.deepEqual(branchJson,persistentBranch.project);
+  await evaluate(`document.getElementById('exportDialog').close()`);
+  await evaluate(`document.getElementById('generatorMode').value='polyline';document.getElementById('generatorMode').dispatchEvent(new Event('change'));`);await idle();assert.equal(await evaluate(`document.getElementById('iterations').max`),'10');await click('undoBtn');assert.equal(await evaluate(`document.getElementById('generatorMode').value`),'branches');
+  console.log('PASS branching preset source persistence, complete disconnected SVG strokes, tapered widths, PNG background and JSON');
+  for(const [family,count] of [['polyline',13],['branches',11],['free',9],['ifs',4],['lsystem',3]])assert.equal(await evaluate(`document.querySelectorAll('#presets-${family} .preset').length`),count);
+  const allPresetIds=await evaluate(`[...document.querySelectorAll('.preset:not([data-custom=true])')].map(b=>b.dataset.id)`);
+  for(const id of allPresetIds){await evaluate(`document.querySelector('[data-id="${id}"]').click()`);await idle();assert.ok(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))>0`));if(await evaluate(`document.getElementById('generatorMode').value==='free'`))writeFileSync(resolve(qa,`preset-${id}.png`),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));}
+  await evaluate(`document.querySelector('[data-id="rosette"]').click()`);await idle();
+  await evaluate(`document.getElementById('transformKind').value='reflect';document.getElementById('transformKind').dispatchEvent(new Event('change'));document.getElementById('transformAngle').value='22.236';document.getElementById('transformAngle').dispatchEvent(new Event('change'));`);await idle();
+  assert.equal(await evaluate(`document.getElementById('transformAngle').value`),'22.236');
+  await evaluate(`document.getElementById('middleColorEnabled').click();document.getElementById('colorMiddle').value='#ff00ff';document.getElementById('colorMiddle').dispatchEvent(new Event('input'));document.getElementById('colorMiddle').dispatchEvent(new Event('change'));`);
+  await click('saveBtn');await evaluate(`document.getElementById('saveName').value='Riflessione a tre colori';document.getElementById('saveForm').requestSubmit();`);await wait(`!document.getElementById('saveDialog').open`);await reload();
+  assert.equal(await evaluate(`document.getElementById('colorMiddle').value`),'#ff00ff');assert.equal(await evaluate(`document.getElementById('transformKind').value`),'reflect');assert.equal(await evaluate(`document.getElementById('transformAngle').value`),'22.24');
+  await evaluate(`window.__downloads=[];window.__blobs=new Map();const create=URL.createObjectURL.bind(URL);URL.createObjectURL=b=>{const u=create(b);window.__blobs.set(u,b);return u;};HTMLAnchorElement.prototype.click=function(){window.__downloads.push({name:this.download,url:this.href});};`);
+  await click('exportBtn');await click('exportSvg');
+  assert.equal(await evaluate(`(async()=>{const doc=new DOMParser().parseFromString(await window.__blobs.get(window.__downloads[0].url).text(),'image/svg+xml');return doc.querySelectorAll('linearGradient stop').length;})()`),3);
+  await evaluate(`document.getElementById('exportDialog').close()`);
+  console.log('PASS all 40 presets, numeric rounding, global options and three-stop gradient persistence and SVG');
+  await evaluate(`document.querySelector('[data-id="elbow-dragon"]').click()`);await idle();
+  assert.equal(await evaluate(`document.getElementById('iterations').max`),'20');assert.equal(await evaluate(`document.getElementById('iterations').step`),'1');
+  assert.equal(await evaluate(`document.getElementById('iterationValue').textContent.includes('%')`),false);
+  assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(1, 1)');
+  assert.equal(await evaluate(`document.getElementById('pointX').value`),'1');assert.equal(await evaluate(`document.getElementById('pointY').value`),'0');
+  assert.equal(await evaluate(`document.getElementById('transformAngle').value`),'-90');
+  await evaluate(`document.getElementById('iterations').value='16';document.getElementById('iterations').dispatchEvent(new Event('input'));document.getElementById('iterations').dispatchEvent(new Event('change'));`);await idle();
+  assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),131072);
+  assert.equal(await evaluate(`document.getElementById('iterations').value`),'16');assert.equal(await evaluate(`document.getElementById('iterationValue').textContent`),'16 iter.');
+  await sleep(350);await reload();assert.equal(await evaluate(`document.getElementById('iterations').value`),'16');
+  await evaluate(`document.getElementById('iterations').value='20';document.getElementById('iterations').dispatchEvent(new Event('input'));`);await idle();
+  assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),1048576);
+  assert.equal(await evaluate(`document.getElementById('complexityNotice').hidden`),false);
+  assert.equal(await evaluate(`document.getElementById('iterationValue').textContent.includes('19 effettive')`),true);
+  console.log('PASS exact L preset, expanded duplication depth, integer detail control and reload');
+
+  for(const id of ['lineWidth','taper','ghostWidth']){
+    assert.equal(await evaluate(`document.getElementById('${id}').step`),'5');
+    assert.equal(await evaluate(`document.getElementById('${id}').max`),'100');
+  }
+  await click('presetBtn');await evaluate(`document.getElementById('presetFamily').value='all';document.getElementById('presetFamily').dispatchEvent(new Event('change'));`);
+  for(const [family,count] of [['polyline',13],['branches',11],['free',9]]){
+    const layout=await evaluate(`(()=>{const grid=document.getElementById('presets-${family}');return {columns:getComputedStyle(grid).gridTemplateColumns.split(' ').length,rows:new Set([...grid.children].map(b=>b.offsetTop)).size};})()`);
+    assert.equal(layout.columns,3);assert.equal(layout.rows,Math.ceil(count/3));
+  }
+  await evaluate(`document.getElementById('presetDialog').close()`);
+  await evaluate(`document.querySelector('[data-id="koch"]').click()`);await idle();await click('fitBtn');
+  await evaluate(`document.getElementById('iterations').value='6';document.getElementById('iterations').dispatchEvent(new Event('input'));`);await idle();
+  assert.equal(await evaluate(`document.getElementById('iterations').value`),'6');
+  await evaluate(`if(!document.getElementById('previousLayer').checked)document.getElementById('previousLayer').click();document.getElementById('ghostColor').value='#ff0000';document.getElementById('ghostColor').dispatchEvent(new Event('input'));document.getElementById('ghostWidth').value='50';document.getElementById('ghostWidth').dispatchEvent(new Event('input'));`);await sleep(100);
+  const redGhost=await evaluate(`(()=>{const c=document.getElementById('fractal'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let count=0;for(let i=0;i<d.length;i+=4)if(d[i]>d[i+1]+20&&d[i]>d[i+2]+20)count++;return count;})()`);assert.ok(redGhost>100);
+  await sleep(350);await reload();assert.equal(await evaluate(`document.getElementById('ghostWidth').value`),'50');assert.equal(await evaluate(`document.getElementById('ghostColor').value`),'#ff0000');
+  await click('zoomIn');const lockedZoom=await evaluate(`document.getElementById('zoomValue').textContent`);assert.equal(lockedZoom,'130%');
+  await click('nextIteration');assert.equal(await evaluate(`document.getElementById('zoomValue').textContent`),lockedZoom);
+  await evaluate(`document.querySelector('[data-id="snowflake"]').click()`);await idle();assert.equal(await evaluate(`document.getElementById('zoomValue').textContent`),lockedZoom);
+  assert.equal(await evaluate(`document.getElementById('radialCopies').value`),'6');assert.equal(await evaluate(`document.getElementById('originValue').textContent`),'(0, 0)');assert.equal(await evaluate(`document.getElementById('endpointValue').textContent`),'(0, 1)');
+  assert.equal(await evaluate(`document.getElementById('ghostStyleControls').hidden`),false);
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1366,height:600,deviceScaleFactor:1,mobile:false});await sleep(200);
+  assert.equal(await evaluate(`document.getElementById('zoomValue').textContent`),lockedZoom);
+  assert.equal(await evaluate(`(()=>{const r=document.querySelector('.workspace').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&document.documentElement.scrollHeight<=innerHeight;})()`),true);
+  await click('fitBtn');writeFileSync(resolve(qa,'snowflake.png'),Buffer.from((await cdp('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});await sleep(150);
+  console.log('PASS percentage steps, curated preset grid, independent ghost pixels and styles, locked zoom, six-arm snowflake and short viewport');
+  await click('fitBtn');
   await cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});await sleep(300);
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth`),true);
   assert.equal(await evaluate(`document.getElementById('zoomValue').textContent`),'100%');
@@ -85,6 +310,16 @@ try{
   await cdp('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await sleep(150);
   assert.ok(parseInt(await evaluate(`document.getElementById('zoomValue').textContent`))>100);
   console.log('PASS mobile layout and two-finger pinch');
+  await cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  const withoutWorker=await cdp('Page.addScriptToEvaluateOnNewDocument',{source:'window.Worker=undefined;'});
+  await cdp('Page.navigate',{url:pathToFileURL(resolve(serverRoot,'dist/index.html')).href});
+  await wait(`!!document.querySelector('[data-id="spiral-tree"]')`);await idle();
+  await evaluate(`document.querySelector('[data-id="spiral-tree"]').click()`);await idle();
+  assert.equal(await evaluate(`document.getElementById('generatorMode').value`),'branches');
+  assert.equal(await evaluate(`Number(document.getElementById('segmentCount').textContent.replaceAll('.',''))`),51189);
+  assert.equal(await evaluate(`document.getElementById('complexityNotice').hidden`),true);
+  await cdp('Page.removeScriptToEvaluateOnNewDocument',{identifier:withoutWorker.identifier});
+  console.log('PASS direct file opening and branching generation without a Web Worker');
   assert.deepEqual(errors,[]);console.log('PASS no uncaught browser exceptions');
   await cdp('Browser.close');socket.close();socket=null;
-}finally{if(socket)socket.close();child.kill();}
+}finally{if(socket)socket.close();child.kill();localServer.kill();await new Promise(ok=>{if(localServer.exitCode!==null)return ok();localServer.once('close',ok);});if(!serverRoot.startsWith(root+sep+'.qa-server-'))throw new Error('Invalid test cleanup path');rmSync(serverRoot,{recursive:true,force:true});}

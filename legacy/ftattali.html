@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Laboratorio Frattali Interattivo</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88, 166, 255, 0.35);
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #sidebar {
+      width: 380px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    h1 { font-size: 1.3rem; color: #fff; display: flex; align-items: center; gap: 8px; }
+    .badge {
+      background: rgba(88, 166, 255, 0.15);
+      color: var(--accent);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .card-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+    }
+    canvas#genCanvas {
+      width: 100%;
+      height: 160px;
+      background: #080c10;
+      border-radius: 6px;
+      cursor: crosshair;
+      border: 1px solid var(--border);
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+    input[type=range] {
+      width: 55%;
+      accent-color: var(--accent);
+    }
+    button, select {
+      background: #21262d;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: all 0.2s;
+    }
+    button:hover, select:hover {
+      background: #30363d;
+      border-color: var(--accent);
+    }
+    button.primary {
+      background: #238636;
+      border-color: #2ea043;
+      color: #fff;
+      font-weight: 600;
+    }
+    button.primary:hover { background: #2ea043; }
+    .btn-group { display: flex; gap: 8px; }
+    .btn-group button { flex: 1; }
+    #stats {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.8rem;
+      color: #7ee787;
+      background: #050b07;
+      border: 1px solid #194827;
+      padding: 10px;
+      border-radius: 6px;
+      line-height: 1.4;
+    }
+    #viewport {
+      flex: 1;
+      position: relative;
+      background: radial-gradient(circle at center, #111722 0%, #080a0f 100%);
+      overflow: hidden;
+    }
+    canvas#fractalCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .hud {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: rgba(22, 27, 34, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      padding: 8px 14px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h1>Frattale Esplosivo <span class="badge">N-Fold</span></h1>
+
+    <!-- Editor Generatore -->
+    <div class="card">
+      <div class="card-title">
+        <span>1. Editor del Segmento Base</span>
+        <span id="pointCountText">1 piega</span>
+      </div>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">
+        Trascina i punti blu per piegarlo. Fai clic sulla linea per aggiungere pieghe, doppio clic su un punto per rimuoverlo.
+      </p>
+      <canvas id="genCanvas"></canvas>
+      <div class="btn-group" style="margin-top: 8px;">
+        <button id="addPointBtn">+ Aggiungi Piega</button>
+        <button id="removePointBtn">- Rimuovi</button>
+        <button id="resetGenBtn">Centra</button>
+      </div>
+    </div>
+
+    <!-- Parametri di Ricorsione -->
+    <div class="card">
+      <div class="card-title">2. Moltiplicazione & Iterazioni</div>
+      <div class="control-row">
+        <span>Iterazioni (<b id="iterVal">4</b>):</span>
+        <input type="range" id="iterRange" min="0" max="8" value="4">
+      </div>
+      <div class="control-row">
+        <span>Preset Storici:</span>
+        <select id="presetSelect">
+          <option value="levy">Lévy C Curve (1 piega, raddoppia ×2)</option>
+          <option value="tent">Picco Triangolare (1 piega, ×2)</option>
+          <option value="zcurve">Doppia Onda Z (2 pieghe, triplica ×3)</option>
+          <option value="koch">Curva di Koch (3 pieghe, quadruplica ×4)</option>
+          <option value="minkowski">Minkowski (7 pieghe, ×8)</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <span>Stile Colore:</span>
+        <select id="colorMode">
+          <option value="rainbow">Arcobaleno Fluorescente</option>
+          <option value="cyber">Cyberpunk Neon</option>
+          <option value="fire">Fuoco / Calore</option>
+          <option value="matrix">Verde Matrix</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <span>Alterna orientamento (Drago):</span>
+        <input type="checkbox" id="alternateCheck">
+      </div>
+    </div>
+
+    <!-- Statistiche Esplosione -->
+    <div id="stats">
+      Moltiplicatore: <b id="statMultiplier">× 2</b> per iterazione<br>
+      Segmenti totali: <b id="statSegments">16</b><br>
+      Dim. Frattale (approx): <b id="statDim">1.00</b>
+    </div>
+
+    <div class="btn-group">
+      <button class="primary" id="saveImageBtn">Salva Immagine PNG</button>
+      <button id="resetCamBtn">Reset Vista</button>
+    </div>
+  </div>
+
+  <div id="viewport">
+    <div class="hud">Trascina per spostare • Rotella mouse per Zoom</div>
+    <canvas id="fractalCanvas"></canvas>
+  </div>
+
+<script>
+// --- STATO DELL'APPLICAZIONE ---
+// I punti interni sono memorizzati come coordinate normalizzate (u, v):
+// Inizio è fisso a (0, 0), Fine è fissata a (1, 0).
+let folds = [{ u: 0.5, v: 0.5 }]; // 1 punto = raddoppia (Lévy C curve)
+let iterations = 4;
+let alternateOrient = false;
+
+// Vista Pan/Zoom per il Frattale
+let cam = { x: 0, y: 0, zoom: 1 };
+let isPanning = false;
+let startPan = { x: 0, y: 0 };
+
+// Canvas Referenze
+const genCanvas = document.getElementById("genCanvas");
+const genCtx = genCanvas.getContext("2d");
+const fCanvas = document.getElementById("fractalCanvas");
+const fCtx = fCanvas.getContext("2d");
+
+let activeDragIndex = -1;
+
+// --- INIZIALIZZAZIONE DIMENSIONI CANVAS ---
+function resizeCanvases() {
+  const dpr = window.devicePixelRatio || 1;
+  genCanvas.width = genCanvas.clientWidth * dpr;
+  genCanvas.height = genCanvas.clientHeight * dpr;
+  genCtx.scale(dpr, dpr);
+
+  fCanvas.width = fCanvas.clientWidth * dpr;
+  fCanvas.height = fCanvas.clientHeight * dpr;
+  fCtx.scale(dpr, dpr);
+
+  drawGenerator();
+  drawFractal();
+}
+window.addEventListener("resize", resizeCanvases);
+
+// --- CONVERSIONE COORDINATE GENERATORE ---
+function genToScreen(u, v) {
+  const w = genCanvas.clientWidth;
+  const h = genCanvas.clientHeight;
+  const pad = 40;
+  const x = pad + u * (w - 2 * pad);
+  const y = h / 2 - v * (w - 2 * pad); // invertito Y
+  return { x, y };
+}
+
+function screenToGen(x, y) {
+  const w = genCanvas.clientWidth;
+  const h = genCanvas.clientHeight;
+  const pad = 40;
+  const u = (x - pad) / (w - 2 * pad);
+  const v = (h / 2 - y) / (w - 2 * pad);
+  return { u, v };
+}
+
+// --- DISEGNO DEL GENERATORE (PANNELLO SINISTRO) ---
+function drawGenerator() {
+  const w = genCanvas.clientWidth;
+  const h = genCanvas.clientHeight;
+  genCtx.clearRect(0, 0, w, h);
+
+  // Linea guida base (0,0) -> (1,0)
+  const pStart = genToScreen(0, 0);
+  const pEnd = genToScreen(1, 0);
+
+  genCtx.strokeStyle = "#30363d";
+  genCtx.lineWidth = 1;
+  genCtx.setLineDash([4, 4]);
+  genCtx.beginPath();
+  genCtx.moveTo(pStart.x, pStart.y);
+  genCtx.lineTo(pEnd.x, pEnd.y);
+  genCtx.stroke();
+  genCtx.setLineDash([]);
+
+  // Costruisci sequenza polilinea
+  const pts = [ { u: 0, v: 0 }, ...folds, { u: 1, v: 0 } ];
+
+  // Disegna segmenti del generatore
+  genCtx.strokeStyle = "#58a6ff";
+  genCtx.lineWidth = 2.5;
+  genCtx.beginPath();
+  pts.forEach((p, i) => {
+    const s = genToScreen(p.u, p.v);
+    if (i === 0) genCtx.moveTo(s.x, s.y);
+    else genCtx.lineTo(s.x, s.y);
+  });
+  genCtx.stroke();
+
+  // Disegna vertici
+  pts.forEach((p, i) => {
+    const s = genToScreen(p.u, p.v);
+    genCtx.beginPath();
+    genCtx.arc(s.x, s.y, i === 0 || i === pts.length - 1 ? 4 : 7, 0, Math.PI * 2);
+    if (i === 0 || i === pts.length - 1) {
+      genCtx.fillStyle = "#8b949e";
+    } else {
+      genCtx.fillStyle = (i - 1 === activeDragIndex) ? "#fff" : "#58a6ff";
+      genCtx.shadowColor = "#58a6ff";
+      genCtx.shadowBlur = 8;
+    }
+    genCtx.fill();
+    genCtx.shadowBlur = 0;
+  });
+
+  updateStats();
+}
+
+// --- CALCOLO E DISEGNO FRATTALE (CANVAS PRINCIPALE) ---
+function drawFractal() {
+  const w = fCanvas.clientWidth;
+  const h = fCanvas.clientHeight;
+  fCtx.clearRect(0, 0, w, h);
+
+  fCtx.save();
+  // Applica telecamera
+  fCtx.translate(w / 2 + cam.x, h / 2 + cam.y);
+  fCtx.scale(cam.zoom, cam.zoom);
+
+  // Inizializza con un segmento centrato nello schermo
+  const baseLen = Math.min(w, h) * 0.6;
+  let segments = [
+    { x1: -baseLen / 2, y1: 0, x2: baseLen / 2, y2: 0, flip: false }
+  ];
+
+  const K = folds.length;
+  const multiplier = K + 1;
+  const totalSubdivisions = Math.pow(multiplier, iterations);
+
+  // Calcola le suddivisioni iterative
+  for (let iter = 0; iter < iterations; iter++) {
+    const nextSegments = [];
+    for (let s of segments) {
+      const dx = s.x2 - s.x1;
+      const dy = s.y2 - s.y1;
+      const flipSign = s.flip ? -1 : 1;
+
+      // Punti del generatore trasformati
+      let prevX = s.x1;
+      let prevY = s.y1;
+
+      for (let j = 0; j < folds.length; j++) {
+        const u = folds[j].u;
+        const v = folds[j].v * flipSign;
+        const nx = s.x1 + u * dx - v * dy;
+        const ny = s.y1 + u * dy + v * dx;
+
+        nextSegments.push({
+          x1: prevX, y1: prevY, x2: nx, y2: ny,
+          flip: alternateOrient ? !s.flip : false
+        });
+        prevX = nx;
+        prevY = ny;
+      }
+      // Ultimo pezzetto verso s.x2, s.y2
+      nextSegments.push({
+        x1: prevX, y1: prevY, x2: s.x2, y2: s.y2,
+        flip: alternateOrient ? !s.flip : false
+      });
+    }
+    segments = nextSegments;
+  }
+
+  // Stile di render
+  fCtx.lineWidth = Math.max(0.7, 2 - iterations * 0.2);
+  fCtx.lineCap = "round";
+
+  const colorMode = document.getElementById("colorMode").value;
+  const count = segments.length;
+
+  for (let i = 0; i < count; i++) {
+    const s = segments[i];
+    const t = i / count;
+
+    if (colorMode === "rainbow") {
+      fCtx.strokeStyle = `hsl(${t * 360}, 95%, 60%)`;
+    } else if (colorMode === "cyber") {
+      const r = Math.floor(88 + 167 * t);
+      const g = Math.floor(166 - 100 * t);
+      const b = 255;
+      fCtx.strokeStyle = `rgb(${r},${g},${b})`;
+    } else if (colorMode === "fire") {
+      fCtx.strokeStyle = `hsl(${t * 60 + 5}, 100%, ${45 + 30 * t}%)`;
+    } else {
+      fCtx.strokeStyle = "#39d353";
+    }
+
+    fCtx.beginPath();
+    fCtx.moveTo(s.x1, s.y1);
+    fCtx.lineTo(s.x2, s.y2);
+    fCtx.stroke();
+  }
+
+  fCtx.restore();
+}
+
+// --- STATISTICHE ---
+function updateStats() {
+  const K = folds.length;
+  const mult = K + 1;
+  const total = Math.pow(mult, iterations);
+
+  document.getElementById("pointCountText").textContent = `${K} ${K === 1 ? 'piega' : 'pieghe'}`;
+  document.getElementById("statMultiplier").textContent = `× ${mult}`;
+  document.getElementById("statSegments").textContent = total.toLocaleString();
+
+  // Dimensione di Hausdorff stimata: D = log(N) / log(1/r)
+  const pts = [ {u:0, v:0}, ...folds, {u:1, v:0} ];
+  let avgLen = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const du = pts[i+1].u - pts[i].u;
+    const dv = pts[i+1].v - pts[i].v;
+    avgLen += Math.sqrt(du*du + dv*dv);
+  }
+  avgLen /= mult;
+  const dim = avgLen > 0 && avgLen < 1 ? (Math.log(mult) / Math.log(1 / avgLen)).toFixed(2) : "~";
+  document.getElementById("statDim").textContent = dim;
+}
+
+// --- INTERAZIONE MOUSE SUL GENERATORE ---
+genCanvas.addEventListener("mousedown", (e) => {
+  const rect = genCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  // Verifica click su punto esistente
+  activeDragIndex = -1;
+  folds.forEach((f, idx) => {
+    const s = genToScreen(f.u, f.v);
+    const dist = Math.hypot(s.x - mx, s.y - my);
+    if (dist < 12) activeDragIndex = idx;
+  });
+
+  if (activeDragIndex === -1 && e.detail === 1) {
+    // Aggiungi nuovo punto se clicchi nell'area
+    const g = screenToGen(mx, my);
+    if (g.u > 0.05 && g.u < 0.95) {
+      folds.push(g);
+      folds.sort((a, b) => a.u - b.u);
+      activeDragIndex = folds.findIndex(p => p === g);
+      drawGenerator();
+      drawFractal();
+    }
+  }
+});
+
+genCanvas.addEventListener("dblclick", (e) => {
+  const rect = genCanvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  folds.forEach((f, idx) => {
+    const s = genToScreen(f.u, f.v);
+    if (Math.hypot(s.x - mx, s.y - my) < 12) {
+      if (folds.length > 1) {
+        folds.splice(idx, 1);
+        activeDragIndex = -1;
+        drawGenerator();
+        drawFractal();
+      }
+    }
+  });
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (activeDragIndex >= 0) {
+    const rect = genCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const g = screenToGen(mx, my);
+    folds[activeDragIndex].u = Math.max(0.02, Math.min(0.98, g.u));
+    folds[activeDragIndex].v = g.v;
+    drawGenerator();
+    drawFractal();
+  }
+});
+
+window.addEventListener("mouseup", () => {
+  if (activeDragIndex >= 0) {
+    folds.sort((a, b) => a.u - b.u);
+    activeDragIndex = -1;
+    drawGenerator();
+    drawFractal();
+  }
+});
+
+// --- PAN E ZOOM SUL FRATTALE ---
+const vp = document.getElementById("viewport");
+vp.addEventListener("mousedown", (e) => {
+  isPanning = true;
+  startPan = { x: e.clientX - cam.x, y: e.clientY - cam.y };
+});
+window.addEventListener("mousemove", (e) => {
+  if (isPanning) {
+    cam.x = e.clientX - startPan.x;
+    cam.y = e.clientY - startPan.y;
+    drawFractal();
+  }
+});
+window.addEventListener("mouseup", () => { isPanning = false; });
+vp.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+  cam.zoom *= zoomFactor;
+  drawFractal();
+});
+
+// --- CONTROLLI UI ---
+const iterRange = document.getElementById("iterRange");
+iterRange.addEventListener("input", (e) => {
+  iterations = parseInt(e.target.value);
+  document.getElementById("iterVal").textContent = iterations;
+  drawFractal();
+  updateStats();
+});
+
+document.getElementById("colorMode").addEventListener("change", drawFractal);
+document.getElementById("alternateCheck").addEventListener("change", (e) => {
+  alternateOrient = e.target.checked;
+  drawFractal();
+});
+
+document.getElementById("addPointBtn").addEventListener("click", () => {
+  folds.push({ u: 0.5, v: 0.4 });
+  folds.sort((a, b) => a.u - b.u);
+  drawGenerator();
+  drawFractal();
+});
+
+document.getElementById("removePointBtn").addEventListener("click", () => {
+  if (folds.length > 1) {
+    folds.pop();
+    drawGenerator();
+    drawFractal();
+  }
+});
+
+document.getElementById("resetGenBtn").addEventListener("click", () => {
+  folds = [{ u: 0.5, v: 0.5 }];
+  drawGenerator();
+  drawFractal();
+});
+
+document.getElementById("resetCamBtn").addEventListener("click", () => {
+  cam = { x: 0, y: 0, zoom: 1 };
+  drawFractal();
+});
+
+// Presets celebri
+document.getElementById("presetSelect").addEventListener("change", (e) => {
+  const p = e.target.value;
+  if (p === "levy") {
+    folds = [{ u: 0.5, v: 0.5 }];
+    iterations = 8;
+  } else if (p === "tent") {
+    folds = [{ u: 0.5, v: 0.866 }];
+    iterations = 6;
+  } else if (p === "zcurve") {
+    folds = [{ u: 0.33, v: 0.4 }, { u: 0.66, v: -0.4 }];
+    iterations = 5;
+  } else if (p === "koch") {
+    folds = [
+      { u: 1/3, v: 0 },
+      { u: 1/2, v: Math.sqrt(3)/6 },
+      { u: 2/3, v: 0 }
+    ];
+    iterations = 4;
+  } else if (p === "minkowski") {
+    folds = [
+      { u: 0.25, v: 0 },
+      { u: 0.25, v: 0.25 },
+      { u: 0.5, v: 0.25 },
+      { u: 0.5, v: 0 },
+      { u: 0.5, v: -0.25 },
+      { u: 0.75, v: -0.25 },
+      { u: 0.75, v: 0 }
+    ];
+    iterations = 3;
+  }
+  iterRange.value = iterations;
+  document.getElementById("iterVal").textContent = iterations;
+  drawGenerator();
+  drawFractal();
+});
+
+document.getElementById("saveImageBtn").addEventListener("click", () => {
+  const link = document.createElement("a");
+  link.download = `frattale_${folds.length}pieghe_iter${iterations}.png`;
+  link.href = fCanvas.toDataURL("image/png");
+  link.click();
+});
+
+// Primo avvio
+resizeCanvases();
+</script>
+</body>
+</html>

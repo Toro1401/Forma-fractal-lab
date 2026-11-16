@@ -1,5 +1,7 @@
 .qa*
 debug.log
+.local/
+.openai/
 desktop.png
 mobile.png
 *.tar.gz
@@ -7,3 +9,8 @@ mobile.png
 node_modules/
 .env*
 !.env.example
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+dist/.user-presets-*.tmp
